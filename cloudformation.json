@@ -1,0 +1,179 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters": {
+        "HashKeyElementName": {
+            "Type": "String",
+            "Default": "date",
+            "Description": "Hash Key Element Name"
+        },
+        "HashKeyElementType": {
+            "Type": "String",
+            "Default": "S",
+            "Description": "Hash Key Element Type"
+        }
+    },
+    "Resources": {
+      "ComputeJob": {
+        "Type": "AWS::Lambda::Function",
+        "Properties": {
+          "FunctionName": "ComputeJob",
+          "Handler": "index.lambda_handler",
+          "Role": {
+            "Fn::GetAtt": [
+              "ComputeJobRole",
+              "Arn"
+            ]
+          },
+          "Code": {
+            "S3Bucket": "compute-job",
+            "S3Key": "index.py.zip"
+          },
+          "Environment":{  
+            "Variables":{  
+                "TargetArn":{  
+                  "Ref":"MySNSTopic"
+                }
+            }
+          },
+          "Runtime": "python3.9",
+          "Timeout": 300
+        }
+      },
+      "ComputeJobRole": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "RoleName": "ComputeJobRole",
+          "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [{
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [ "lambda.amazonaws.com" ]
+              },
+              "Action": [ "sts:AssumeRole" ]
+            }]
+          },
+          "Path": "/",
+          "Policies": [{
+            "PolicyName": "AWSLambdaBasicExecutionRole",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Action": [
+                  "logs:CreateLogGroup",
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents"
+                ],
+                "Resource": "*"
+              }]
+            }
+          },
+          {
+            "PolicyName": "DynamoDBFullAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Action": "dynamodb:*",
+                "Resource": [
+                    "arn:aws:dynamodb:us-east-1:691215540370:table/covid",
+                    "arn:aws:dynamodb:*:691215540370:table/covid/index/date"
+                ]
+              }]
+            }
+          },
+          {
+            "PolicyName": "SNSFullAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Action": "SNS:*",
+                "Resource": [
+                    "*"
+                ]
+              }]
+            }
+          },
+          {
+            "PolicyName": "SSMFullAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Action": "ssm:*",
+                "Resource": [
+                    "*"
+                ]
+              }]
+            }
+          }]
+        }
+      },
+      "ComputeJobSchedule": {
+        "Type": "AWS::Events::Rule",
+        "Properties": {
+          "Name": "ComputeJobSchedule",
+          "Description": "Triggers compute-job lambda function",
+          "ScheduleExpression": "cron(0 20 * * ? *)",
+          "Targets": [{
+            "Id": "ComputeJobScheduleTarget",
+            "Arn": {
+              "Fn::GetAtt": [ "ComputeJob", "Arn" ]
+            }
+          }],
+          "State": "ENABLED"
+        }
+      },
+      "ComputeJobScheduleInvokeLambdaPermission": {
+        "Type": "AWS::Lambda::Permission",
+        "Properties": {
+          "FunctionName": { "Ref": "ComputeJob" },
+          "Action": "lambda:InvokeFunction",
+          "Principal": "events.amazonaws.com",
+          "SourceArn": { "Fn::GetAtt": [ "ComputeJobSchedule", "Arn" ] }
+        }
+      },
+      "MySNSTopic": {
+        "Type": "AWS::SNS::Topic",
+        "Properties": {
+            "Subscription": [
+                {
+                    "Endpoint": "raffaelle.william@yahoo.com",
+                    "Protocol": "email"
+                }
+            ],
+            "TopicName": "etl-job-complete"
+            }
+        },
+        "covid": {
+            "Type": "AWS::DynamoDB::Table",
+            "Properties": {
+                "TableName": "covid",
+                "AttributeDefinitions": [
+                    {
+                        "AttributeName": {
+                            "Ref": "HashKeyElementName"
+                        },
+                        "AttributeType": {
+                            "Ref": "HashKeyElementType"
+                        }
+                    }
+                ],
+                "KeySchema": [
+                    {
+                        "AttributeName": {
+                            "Ref": "HashKeyElementName"
+                        },
+                        "KeyType": "HASH"
+                    }
+                ],
+                "ProvisionedThroughput": {
+                    "ReadCapacityUnits": 5,
+                    "WriteCapacityUnits": 5
+                }
+            }
+        }
+    }
+}  
